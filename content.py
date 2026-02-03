@@ -7,61 +7,43 @@ import google.generativeai as genai
 import json
 
 def generate_post(topic):
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        print("Missing Gemini API Key")
+    # Load all available keys
+    keys = []
+    
+    # 1. Check for comma-separated list
+    main_key = os.getenv("GEMINI_API_KEY", "")
+    if "," in main_key:
+        keys.extend([k.strip() for k in main_key.split(",") if k.strip()])
+    elif main_key:
+        keys.append(main_key)
+        
+    # 2. Check for indexed keys (GEMINI_API_KEY_1, _2, etc.)
+    i = 1
+    while True:
+        k = os.getenv(f"GEMINI_API_KEY_{i}")
+        if not k: break
+        keys.append(k.strip())
+        i += 1
+        
+    if not keys:
+        print("Missing Gemini API Key(s)")
         return None
+        
+    print(f"   [i] Loaded {len(keys)} Gemini API Keys for rotation.")
 
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.0-flash-lite')
-    
-    prompt = f"""
-    You are a senior investigative journalist with deep expertise in breaking news. Write a COMPREHENSIVE, ORIGINAL article about: "{topic}".
-    
-    **CRITICAL: Google AdSense 2026 Compliance (E-E-A-T Principles)**
-    To bypass "Low Value Content" filters, this article MUST demonstrate:
-    - **Experience**: Include specific examples, case studies, or historical parallels. Avoid generic statements.
-    - **Expertise**: defined by depth. Explain *mechanisms*, not just results. Use industry terminology correctly.
-    - **Authoritativeness**: Adopt a confident, decisive tone. 
-    - **Trustworthiness**: Present multiple viewpoints where applicable, then synthesize a concluded expert opinion.
-    - **Originality**: Provide a unique angle or "contrarian" insight that isn't found in generic summaries.
-    
-    **MANDATORY Structure (All sections REQUIRED):**
-    1. **Title (H1)**: Compelling, SEO-optimized, factual headline
-    2. **Key Takeaways**: 4-5 bullet points summarizing main insights (use <ul>/<li>)
-    3. **[IMAGE]** placeholder (place IMMEDIATELY after Key Takeaways)
-    4. **Introduction**: fast-paced context. Why this matters NOW.
-    5. **The Deep Dive** (H2): Who/what/when/where/why breakdown. Use <h3> subsections for readability.
-    6. **Expert Analysis & Implications** (H2): The MOST IMPORTANT section. Explain the "So What?". How does this affect the industry/world in 6-12 months? 
-    7. **Future Outlook** (H2): Prediction based on current data.
-    8. **FAQ** (H2): 5-7 distinct questions that a user would actually ask (use <h3> for each question).
-    9. **Bottom Line** (H2): Final summary verdict.
-    
-    **Technical Requirements:**
-    - **Minimum Length**: 1200 words (aim for 1500+). Do not Hallucinate word count, actually write long content.
-    - **Formatting**: Short paragraphs (2-4 sentences each) for mobile readability.
-    - **No placeholders**: Never write [Date], [Location], etc. - omit if unknown.
-    - **HTML Only**: Use <h2>, <h3>, <p>, <ul>, <li>, <strong>, <em>. NO markdown, NO <html>/<body> tags.
-    
-    **Output Format**: 
-    - First line: The Title
-    - Second line: "|||SEPARATOR|||"
-    - Rest of text: The HTML Content
-    
-    **CRITICAL**: 
-    - Do NOT output JSON. 
-    - Ensure the separator "|||SEPARATOR|||" is exact.
-    
-    Tone: Professional, authoritative, slightly provocative (financial/tech journalism style).
-    """
-    
-    
-    # Retry with exponential backoff for rate limit errors
+    # Retry parameters
     max_retries = 3
-    retry_delays = [30, 60, 120]  # 30s, 1min, 2min
+    retry_delays = [5, 10, 20] # Shorter delays since we have rotation
     
-    for attempt in range(max_retries):
+    current_key_idx = 0
+    
+    for attempt in range(max_retries * len(keys)): # Try enough times for all keys
         try:
+            # Configure with current key
+            current_key = keys[current_key_idx]
+            genai.configure(api_key=current_key)
+            model = genai.GenerativeModel('gemini-2.0-flash-lite')
+            
             # We remove response_mime_type="application/json" to get raw text
             response = model.generate_content(prompt)
             
@@ -91,19 +73,19 @@ def generate_post(topic):
             error_msg = str(e)
             # Check if it's a 429 rate limit error
             if "429" in error_msg or "Resource exhausted" in error_msg:
-                if attempt < max_retries - 1:
-                    wait_time = retry_delays[attempt]
-                    print(f"[⚠️] Rate limit hit. Waiting {wait_time}s before retry (attempt {attempt + 1}/{max_retries})...")
-                    time.sleep(wait_time)
-                    continue
-                else:
-                    print(f"Gemini error after {max_retries} retries: {e}")
-                    return None
+                print(f"[⚠️] Key {current_key[:5]}... hit rate limit (429).")
+                
+                # Rotate Key
+                current_key_idx = (current_key_idx + 1) % len(keys)
+                next_key = keys[current_key_idx]
+                print(f"   [↻] Rotating to next key: {next_key[:5]}...")
+                
+                time.sleep(2) # Brief pause
+                continue
             else:
                 # Non-rate-limit error
                 print(f"Gemini error: {e}")
                 return None
     
-    return None
-    
+    print("[!] All keys exhausted or max retries reached.")
     return None
