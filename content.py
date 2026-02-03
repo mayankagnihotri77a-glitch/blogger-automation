@@ -75,13 +75,14 @@ def generate_post(topic):
     Tone: Professional, authoritative, slightly provocative (financial/tech journalism style).
     """
 
-    # Models to try (in order of preference/speed)
-    # 2.0 Flash is generally fastest -> 1.5 Flash is reliable -> 1.5 Pro is high quality fallback
+    # Models to try (Verified available via check_models.py)
+    # Using 2.5 and 2.0 family as 1.5 appears deprecated/unavailable for this key
     models_to_try = [
-        'gemini-2.0-flash', 
-        'gemini-1.5-flash', 
-        'gemini-1.5-pro',
-        'gemini-2.0-flash-lite'
+        'gemini-2.0-flash',       # Fast, generally high limits
+        'gemini-2.0-flash-lite',  # Lite version, very efficient
+        'gemini-2.5-flash',       # Newest Flash model
+        'gemini-flash-latest',    # Alias for latest stable flash
+        'gemini-2.5-pro'          # High quality fallback
     ]
     
     current_key_idx = 0
@@ -126,28 +127,25 @@ def generate_post(topic):
             
         except Exception as e:
             error_msg = str(e)
-            # Check if it's a 429 rate limit error
-            if "429" in error_msg or "Resource exhausted" in error_msg:
-                print(f"[⚠️] {current_model_name} with Key {current_key[:5]}... hit limit.")
-                
-                # Logic: Switch Model first, then Key if all models fail for that key?
-                # Simpler: Just rotate through the cartesian product sequentially or random?
-                # Let's rotate Model first (stay on same key), then rotate Key.
-                
-                current_model_idx += 1
-                if current_model_idx >= len(models_to_try):
-                    current_model_idx = 0
-                    current_key_idx = (current_key_idx + 1) % len(keys)
-                    print(f"   [↻] Switching to next KEY: {keys[current_key_idx][:5]}...")
-                
-                print(f"   [↻] Retrying with Model: {models_to_try[current_model_idx]}...")
-                
-                time.sleep(2) # Brief pause
-                continue
-            else:
-                # Non-rate-limit error
-                print(f"Gemini error: {e}")
-                return None
+            print(f"[⚠️] Error with {current_model_name} (Key: {current_key[:5]}...): {error_msg[:100]}...")
+            
+            # For ANY error (429, 404, 500, etc), we should probably try the next model/key 
+            # instead of giving up immediately, especially for 404s.
+            
+            # logic: Rotate Model first, then Key
+            current_model_idx += 1
+            if current_model_idx >= len(models_to_try):
+                current_model_idx = 0
+                current_key_idx = (current_key_idx + 1) % len(keys)
+                print(f"   [↻] Switching to next KEY: {keys[current_key_idx][:5]}...")
+            
+            print(f"   [↻] Retrying with Model: {models_to_try[current_model_idx]}...")
+            
+            time.sleep(2) # Brief pause
+            continue
+    
+    print("[!] All keys/models exhausted or max retries reached.")
+    return None
     
     print("[!] All keys exhausted or max retries reached.")
     return None
