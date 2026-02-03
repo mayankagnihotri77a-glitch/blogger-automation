@@ -50,6 +50,23 @@ def rebuild_post(service, blog_id, post):
     existing_imgs = old_soup.find_all('img')
     
     # FILTER: Remove known broken images (Unsplash source deprecated)
+    import requests
+
+    def validate_image_url(url):
+        try:
+            # Fake headers to avoid 403 Forbidden from some CDNs
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, right) Gecko/20100101 Firefox/89.0'}
+            r = requests.head(url, headers=headers, timeout=3)
+            # Some servers block HEAD, so try GET with stream if 405/403
+            if r.status_code in [405, 403]:
+                 r = requests.get(url, headers=headers, stream=True, timeout=3)
+                 r.close() # Close connection immediately
+            
+            return r.status_code == 200
+        except:
+            return False
+
+    # FILTER: Remove known broken images (Unsplash source deprecated) AND validate accessibility
     valid_existing_imgs = []
     has_broken_images = False
     
@@ -65,9 +82,18 @@ def rebuild_post(service, blog_id, post):
             print(f"   [-] Removing invalid image source: {src[:30]}...")
             continue
             
-        valid_existing_imgs.append(str(img))
+        # PING TEST: Check if image is actually accessible
+        if not validate_image_url(src):
+            print(f"   [-] Removing inaccessible image (403/404): {src[:30]}...")
+            has_broken_images = True
+            continue
+            
+        # Re-create tag with guaranteed styling to fix "not visible/bad format" issues
+        # We assume if it passed validation, the URL is good.
+        styled_tag = f'<img src="{src}" style="width:100%; border-radius:10px; margin: 20px 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">'
+        valid_existing_imgs.append(styled_tag)
 
-    print(f"   [i] Found {len(valid_existing_imgs)} valid existing images to preserve.")
+    print(f"   [i] Found {len(valid_existing_imgs)} valid & accessible existing images.")
     if has_broken_images:
         print("   [!] Logic: Will replace broken images by strictly fetching new ones.")
 
@@ -75,12 +101,15 @@ def rebuild_post(service, blog_id, post):
     # If we had broken images, we treat target as higher to ensure we fill the gaps
     target_images = 2
     existing_img_tags = valid_existing_imgs # Use the filtered list
+    
+    # Logic: If we have 1 existing image, 2 - 1 = 1 needed. (Matches user request "add one more")
+    # If we have 0, 2 - 0 = 2 needed.
     needed_new_images = max(0, target_images - len(existing_img_tags))
     
     new_img_tags = []
     used_urls = set()
     
-    # Add existing images to used set to avoid re-fetching them (unlikely but good safety)
+    # Add existing images to used set to avoid re-fetching them
     for tag in existing_img_tags:
         soup_temp = BeautifulSoup(tag, 'html.parser')
         img_temp = soup_temp.find('img')
