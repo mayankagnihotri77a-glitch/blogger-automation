@@ -35,6 +35,46 @@ def generate_post(topic):
     max_retries = 3
     retry_delays = [5, 10, 20] # Shorter delays since we have rotation
     
+    prompt = f"""
+    You are a senior investigative journalist with deep expertise in breaking news. Write a COMPREHENSIVE, ORIGINAL article about: "{topic}".
+    
+    **CRITICAL: Google AdSense 2026 Compliance (E-E-A-T Principles)**
+    To bypass "Low Value Content" filters, this article MUST demonstrate:
+    - **Experience**: Include specific examples, case studies, or historical parallels. Avoid generic statements.
+    - **Expertise**: defined by depth. Explain *mechanisms*, not just results. Use industry terminology correctly.
+    - **Authoritativeness**: Adopt a confident, decisive tone. 
+    - **Trustworthiness**: Present multiple viewpoints where applicable, then synthesize a concluded expert opinion.
+    - **Originality**: Provide a unique angle or "contrarian" insight that isn't found in generic summaries.
+    
+    **MANDATORY Structure (All sections REQUIRED):**
+    1. **Title (H1)**: Compelling, SEO-optimized, factual headline
+    2. **Key Takeaways**: 4-5 bullet points summarizing main insights (use <ul>/<li>)
+    3. **[IMAGE]** placeholder (place IMMEDIATELY after Key Takeaways)
+    4. **Introduction**: fast-paced context. Why this matters NOW.
+    5. **The Deep Dive** (H2): Who/what/when/where/why breakdown. Use <h3> subsections for readability.
+    6. **Expert Analysis & Implications** (H2): The MOST IMPORTANT section. Explain the "So What?". How does this affect the industry/world in 6-12 months? 
+    7. **Future Outlook** (H2): Prediction based on current data.
+    8. **FAQ** (H2): 5-7 distinct questions that a user would actually ask (use <h3> for each question).
+    9. **Bottom Line** (H2): Final summary verdict.
+    
+    **Technical Requirements:**
+    - **Minimum Length**: 1200 words (aim for 1500+). Do not Hallucinate word count, actually write long content.
+    - **Formatting**: Short paragraphs (2-4 sentences each) for mobile readability.
+    - **No placeholders**: Never write [Date], [Location], etc. - omit if unknown.
+    - **HTML Only**: Use <h2>, <h3>, <p>, <ul>, <li>, <strong>, <em>. NO markdown, NO <html>/<body> tags.
+    
+    **Output Format**: 
+    - First line: The Title
+    - Second line: "|||SEPARATOR|||"
+    - Rest of text: The HTML Content
+    
+    **CRITICAL**: 
+    - Do NOT output JSON. 
+    - Ensure the separator "|||SEPARATOR|||" is exact.
+    
+    Tone: Professional, authoritative, slightly provocative (financial/tech journalism style).
+    """
+
     # Models to try (in order of preference/speed)
     # 2.0 Flash is generally fastest -> 1.5 Flash is reliable -> 1.5 Pro is high quality fallback
     models_to_try = [
