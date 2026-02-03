@@ -35,14 +35,29 @@ def generate_post(topic):
     max_retries = 3
     retry_delays = [5, 10, 20] # Shorter delays since we have rotation
     
-    current_key_idx = 0
+    # Models to try (in order of preference/speed)
+    # 2.0 Flash is generally fastest -> 1.5 Flash is reliable -> 1.5 Pro is high quality fallback
+    models_to_try = [
+        'gemini-2.0-flash', 
+        'gemini-1.5-flash', 
+        'gemini-1.5-pro',
+        'gemini-2.0-flash-lite'
+    ]
     
-    for attempt in range(max_retries * len(keys)): # Try enough times for all keys
+    current_key_idx = 0
+    current_model_idx = 0
+    
+    # Try all keys x all models
+    total_attempts = len(keys) * len(models_to_try) * max_retries
+    
+    for attempt in range(total_attempts):
         try:
             # Configure with current key
             current_key = keys[current_key_idx]
+            current_model_name = models_to_try[current_model_idx]
+            
             genai.configure(api_key=current_key)
-            model = genai.GenerativeModel('gemini-2.0-flash-lite')
+            model = genai.GenerativeModel(current_model_name)
             
             # We remove response_mime_type="application/json" to get raw text
             response = model.generate_content(prompt)
@@ -73,12 +88,19 @@ def generate_post(topic):
             error_msg = str(e)
             # Check if it's a 429 rate limit error
             if "429" in error_msg or "Resource exhausted" in error_msg:
-                print(f"[⚠️] Key {current_key[:5]}... hit rate limit (429).")
+                print(f"[⚠️] {current_model_name} with Key {current_key[:5]}... hit limit.")
                 
-                # Rotate Key
-                current_key_idx = (current_key_idx + 1) % len(keys)
-                next_key = keys[current_key_idx]
-                print(f"   [↻] Rotating to next key: {next_key[:5]}...")
+                # Logic: Switch Model first, then Key if all models fail for that key?
+                # Simpler: Just rotate through the cartesian product sequentially or random?
+                # Let's rotate Model first (stay on same key), then rotate Key.
+                
+                current_model_idx += 1
+                if current_model_idx >= len(models_to_try):
+                    current_model_idx = 0
+                    current_key_idx = (current_key_idx + 1) % len(keys)
+                    print(f"   [↻] Switching to next KEY: {keys[current_key_idx][:5]}...")
+                
+                print(f"   [↻] Retrying with Model: {models_to_try[current_model_idx]}...")
                 
                 time.sleep(2) # Brief pause
                 continue
