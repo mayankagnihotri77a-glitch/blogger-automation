@@ -116,6 +116,11 @@ def generate_post(topic):
                     if content.startswith("```"): content = content[3:]
                     if content.endswith("```"): content = content[:-3]
                     
+                    # CLEANUP: Apply regex to remove "An image depicting..." and fix [IMAGE}
+                    import re
+                    content = re.sub(r'\((?:An|The|A) image depicting.*?\)', '', content, flags=re.IGNORECASE)
+                    content = re.sub(r'\[IMAGE\}', '[IMAGE]', content, flags=re.IGNORECASE)
+
                     return {"title": title, "content": content.strip()}
             
             # Fallback if separator missing (rare)
@@ -123,6 +128,12 @@ def generate_post(topic):
             lines = raw_text.split('\n')
             title = lines[0].strip()
             content = '\n'.join(lines[1:]).strip()
+            
+            # CLEANUP: Apply regex to remove "An image depicting..." and fix [IMAGE}
+            import re
+            content = re.sub(r'\((?:An|The|A) image depicting.*?\)', '', content, flags=re.IGNORECASE)
+            content = re.sub(r'\[IMAGE\}', '[IMAGE]', content, flags=re.IGNORECASE)
+            
             return {"title": title, "content": content}
             
         except Exception as e:

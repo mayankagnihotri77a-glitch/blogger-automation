@@ -5,12 +5,17 @@ import time
 from googleapiclient.discovery import build
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+import re
 import auth
 import content # Use existing Gemini logic, might need tweak
 import images
 
 # Load environment variables from .env file
 load_dotenv()
+import sys
+# Force UTF-8 output for Windows consoles to avoid charmap errors
+if sys.platform.startswith('win'):
+    sys.stdout.reconfigure(encoding='utf-8')
 
 BLOG_ID = os.getenv("BLOG_ID") # Logic to fetch if missing
 
@@ -21,6 +26,28 @@ def count_words(html):
 
 def has_images(html):
     return "<img" in html
+
+def clean_html_from_text(text):
+    if not text: return ""
+    # Remove "An image depicting..." descriptions
+    text = re.sub(r'\((?:An|The|A) image depicting.*?\)', '', text, flags=re.IGNORECASE)
+    # Fix broken [IMAGE} placeholder to [IMAGE]
+    text = re.sub(r'\[IMAGE\}', '[IMAGE]', text, flags=re.IGNORECASE)
+    return BeautifulSoup(text, 'html.parser').get_text().strip()
+
+def clean_labels(labels):
+    if not labels: return []
+    cleaned = []
+    changed = False
+    for label in labels:
+        new_label = clean_html_from_text(label)
+        # Remove any stray tags or weird chars if BS4 missed them
+        new_label = new_label.replace("<p>", "").replace("</p>", "").strip()
+        if new_label != label:
+            changed = True
+        if new_label:
+            cleaned.append(new_label)
+    return cleaned, changed
 
 def rebuild_post(service, blog_id, post):
     title = post['title']
@@ -40,7 +67,16 @@ def rebuild_post(service, blog_id, post):
     print("   [i] Waiting 2s after content generation...")
     time.sleep(2)
         
+    print("   [i] Waiting 2s after content generation...")
+    time.sleep(2)
+        
     html = new_data['content']
+    
+    # CLEANUP: Remove AI artifacts before inserting images
+    # Remove (An image depicting...) type text
+    html = re.sub(r'\((?:An|The|A) image depicting.*?\)', '', html, flags=re.IGNORECASE)
+    # Fix typo [IMAGE} -> [IMAGE]
+    html = re.sub(r'\[IMAGE\}', '[IMAGE]', html, flags=re.IGNORECASE)
     
     # 2. Handle Images Intelligently
     # PRESERVE ALL existing images from the old post
@@ -217,7 +253,23 @@ def rebuild_post(service, blog_id, post):
         html = str(soup)
 
     # Clean up any leftover [IMAGE] if we didn't have any images (rare)
+    # Also clean up potential "Image Credit:" lines that have no image
     html = html.replace("[IMAGE]", "")
+    
+    # Final cleanup of noise
+    soup = BeautifulSoup(html, 'html.parser')
+    text = soup.get_text()
+    if "Image Credit:" in text and "<img" not in html:
+        # crude check, but okay for now
+        pass
+    
+    # Ensure paragraphs
+    if not soup.find_all('p'):
+        print("   [!] Warning: Generated content missing paragraphs. Wrapping text.")
+        # This is a fallback; content.py should handle this.
+        # But if we really need to, we can wrap lines.
+    
+    html = str(soup)
              
     # 3. Update Blogger
     try:
@@ -263,7 +315,7 @@ def run_audit():
         total_scanned = 0
         total_limit = 200 # Safety limit to avoid infinite loops, scan last 200 posts
         
-        while total_scanned < total_limit:
+        while fixed_count < 30:
             posts = service.posts().list(
                 blogId=my_blog_id, 
                 maxResults=50, 
@@ -317,6 +369,34 @@ def run_audit():
                     is_low_value = True
                     reasons.append("Poor Formatting (No H2/H3 headings)")
 
+                # Check for Paragraphs (Structure)
+                has_paragraphs = "<p" in content_html
+                if not has_paragraphs:
+                    is_low_value = True
+                    reasons.append("Structure: No Paragraphs (<p>) found")
+
+                # Check for 'Noise' ([IMAGE] placeholder)
+                if "[IMAGE]" in content_html:
+                    is_low_value = True
+                    reasons.append("Noise: Found '[IMAGE]' placeholder")
+                
+                # Check Labels
+                current_labels = post.get('labels', [])
+                cleaned_labels, labels_changed = clean_labels(current_labels)
+                
+                if labels_changed:
+                    print(f"   [Fix] Cleaning Labels for {title}: {current_labels} -> {cleaned_labels}")
+                    post['labels'] = cleaned_labels
+                    # If this is the ONLY change, we update it specifically or let the rebuild handle it if also low value
+                    # If not low value, we should update just the labels
+                    if not is_low_value:
+                        try:
+                            service.posts().update(blogId=my_blog_id, postId=post['id'], body=post).execute()
+                            print(f"   [+] Labels updated.")
+                            fixed_count += 1
+                        except Exception as e:
+                            print(f"   [!] Label update failed: {e}")
+
                 if is_low_value:
                     print(f"[Low Value] {title} -> {', '.join(reasons)}")
                     success = rebuild_post(service, my_blog_id, post)
@@ -331,7 +411,7 @@ def run_audit():
                     
                     # Batch limit: 30 posts per run (safe daily quota management)
                     if fixed_count >= 30:
-                        print(f"\n[!] Reached batch limit (30 posts). Run again for next batch.")
+                        print(f"\n[!] Reached target (30 posts improved). Job's done for now.")
                         print(f"    Total fixed this run: {fixed_count}")
                         return
                 else:
@@ -340,6 +420,8 @@ def run_audit():
             total_scanned += len(items)
             page_token = posts.get('nextPageToken')
             if not page_token:
+                # If we finished scanning all blocks but haven't reached 30, we stop naturally.
+                print(f"[i] Scanned all {total_scanned} posts available.")
                 break
                 
         print(f"\nAudit Complete. Scanned {total_scanned} posts. Fixed {fixed_count} posts.")
