@@ -97,6 +97,8 @@ def get_image(query):
         if link: return link
 
     print(f"   [!] Failed to find image for: {query}")
+    print("   [?] HINT: If you recently created this Search Engine, 'Search the entire web' is DISABLED.")
+    print("   [?] ACTION: Go to Programmable Search Engine > Overview > 'Sites to search' and add domains like 'unsplash.com', 'pexels.com', etc.")
     return None
 
 # Deprecated/Removed Unsplash Fallback
